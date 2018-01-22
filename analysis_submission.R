@@ -8,7 +8,10 @@ usePackage <- function(p) {
 packages= c("numDeriv","RCurl","knitr","MASS","ggplot2","orcutt","reshape2","plyr",'RColorBrewer','R.matlab','zoo','data.table','scales',"lme4","nlme","car","lmtest","coefplot2","GGally","scales",'Rmisc',"tidyr","effsize","boot",'grid','geepack','gee')
 lapply(packages,usePackage)
 
-#### Remove Outlier Function ####
+#Data is stored as individual .mat files, with columns of subjid, time (day), feature type, and feature value. These were created by calculating over the raw data as described in the manuscript.
+#The remainder of this code cleans, normalizes, generates graphs/plots, and calculates the various metrics used in the manuscript.
+
+#### Remove Outliers Function ####
 #Function to remove outliers from raw data. These outliers were manually identified due to large perturbations
 #in features, that were subsequently validated to be artifactual as described in the manuscript.
 removeOutliers = function(dat) {
@@ -16,25 +19,6 @@ removeOutliers = function(dat) {
   tmpdat$subjid = factor(tmpdat$subjid)
   tmpdat$ch = factor(tmpdat$ch)
   tmpdat$szCh = factor(tmpdat$szCh)
-  # idx = tmpdat$subjid=="I004_A0001_D00"
-  # 
-  # idx = tmpdat$subjid=="I004_A0001_D00" & (tmpdat$time>42)
-  # tmpdat[idx,]$feat = NA
-  # 
-  # idx = tmpdat$subjid=="I004_A0002_D00"
-  # 
-  # idx = tmpdat$subjid=="I004_A0002_D00" & (tmpdat$time>100 & tmpdat$time<250)
-  # tmpdat[idx,]$feat = NA
-  # 
-  # #A3
-  # idx = tmpdat$subjid=="I004_A0003_D00"
-  # 
-  # #
-  # idx = tmpdat$subjid=="I004_A0004_D00"
-  # 
-  # idx = tmpdat$subjid=="I004_A0004_D00" & tmpdat$time>230
-  # tmpdat[idx,]$feat = NA
-
   
   #23_002
   idx = tmpdat$subjid=="NVC1001_23_002" 
@@ -214,6 +198,7 @@ summarySE = function(data=NULL, measurevar, groupvars=NULL, na.rm=TRUE, conf.int
   
   return(datac)
 }
+
 normalizeCh = function(dat) {
   #normalize 95% each subject's chs to values of [0-1],
   subjects = unique(dat$subjid)
@@ -234,7 +219,7 @@ formatter2 = function(x){
   x
 }
 
-############# COF VAR ############
+############# COEFFICIENT OF VARIATION ############
 indivFit= function(dat,maxTime,featName) {
   tmp = dat[dat$time<maxTime,]
   tmpavg = ddply(tmp, .(subjid,time),summarize,meanfeat=mean(feat,na.rm=TRUE),sd=sd(feat,na.rm=TRUE),cofvar=sd/meanfeat)
@@ -275,6 +260,8 @@ indivFit= function(tmpdat,featName,maxTime,logflag) {
   tmp = tmpdat[tmpdat$time<maxTime,]
   tmpavg = ddply(tmp, .(subjid,time),summarize,feat=mean(feat))
   tmpavg = groupedData(feat~time|subjid,data=tmpavg)
+  
+  #different log flags for determining relationship
   if (logflag ==0 ) {
     mod = lmList(feat~time, data=tmpavg,na.action=na.omit)
   }
@@ -324,13 +311,7 @@ power2Feats = featLabelList[c(10,11,13,14)]
 
 indivAndGroupPlot = function(featShort,featLabel,maxTime,logflag) {
   dat = as.data.frame(readMat(paste("combined_",featShort,"_",id,".mat",sep='')))
-  #ggplot(dat[dat$subjid=='NVC1001_25_002',],aes(x=time,y=feat)) + geom_point() + facet_wrap(~ch,scales="free_y")
-  #ggplot(dat[dat$subjid=='NVC1001_24_001',],aes(x=time,y=feat)) + geom_point() + facet_wrap(~ch,scales="free_y")
-  
-  #ggplot(dat[dat$subjid=='NVC1001_24_002',],aes(x=time,y=feat)) + geom_point() + facet_wrap(~ch,scales="free_y")
-  
   #average channels
-
   #remove outliers
   dat = removeOutliers(dat)
   tmpdat_ch = summarySE(dat, measurevar="feat", groupvars=c("time","subjid"))
@@ -368,12 +349,6 @@ indivAndGroupPlot = function(featShort,featLabel,maxTime,logflag) {
   #plot individual trends
   out = indivFitAndPlot(ndat,featShort,maxTime,logflag)
   indivFits = rbind(indivFits,out)
-  
-  #plot group trends
-  dogIdx= ndat$subjid=="I004_A0001_D00" | ndat$subjid=="I004_A0002_D00" | ndat$subjid=="I004_A0003_D00" | ndat$subjid=="I004_A0004_D00"
-  tmpdat = ndat[!dogIdx,]
-  origdat = origdat[!dogIdx,]
-  tmpdat_ch = summarySE(tmpdat, measurevar="feat", groupvars=c("time","subjid"))
   
   #plot mean across subjects after normalization
   tmpdat_subjch = summarySE(tmpdat_ch, measurevar="feat", groupvars=c("time"))
@@ -413,7 +388,7 @@ for (i in 1:length(featShortList)){
   allDat = merge(allDat,tmp,all=T);
 }
 
-# ######## PLOT FEATURES###########
+######### PLOT FEATURES ###########
 
 ##### CORRELATIONS BETWEEN ALL FEATURES #####
 cor(allDat[sapply(allDat, is.numeric)],method="pearson",use="complete.obs")
@@ -430,7 +405,7 @@ allDatLongOrig = reshape(allDatOrig, varying = paste(featShortList,'_orig',sep='
                          timevar = "feature", times = paste(featShortList,'_orig',sep=''), direction = "long")
 
 
-###### Cofvar #####
+###### Coefficient of variation for all features ######
 MAXTIMEPLOT = 500
 tmp = ddply(allDatLongOrig,.(subjid,time,feature),summarize,meanfeat = mean(value),sd = sd(value), cofvar = sd/meanfeat)
 origfeatlist = featLabelList;
@@ -438,7 +413,7 @@ names(origfeatlist) = paste(featShortList,'_orig',sep='')
 tmp$feature = revalue(tmp$feature,replace=origfeatlist)
 tmp$feature = factor(tmp$feature,levels=featLabelList)
 
-#### normalize cofvar
+#### normalize cofvar #####
 subjects = unique(tmp$subjid)
 features = unique(tmp$feature)
 for (i in 1:length(subjects)) {
@@ -476,13 +451,12 @@ mean_se <- function(x, mult = 1) {
   data.frame(y = mean, ymin = mean - se, ymax = mean + se)
 }
 
-
+#TIME FEATURES
 g = ggplot(tmp[(tmp$feature %in% timeFeats),],aes(x=time,y=cofvar)) + stat_summary(fun.data=mean_se,geom="ribbon",alpha=0.35) + stat_smooth(aes(colour="Mean"),se=F,alpha=0.8,level=0.95)  + facet_wrap(~feature) +
   geom_hline(aes(colour="Stable Threshold",yintercept=upper_thres),size=1,linetype="dotted")  + theme(plot.title=element_text(size=18),axis.text = element_text(size=12),axis.title = element_text(size=14),strip.text.x = element_text(size = 14),legend.position='top',legend.text=element_text(size=12)) + coord_cartesian(ylim = c(0,1.25),xlim=c(0,MAXTIMEPLOT)) +
   xlab('Time (Days)') + ylab('Normalized Coefficient of Variation') + ggtitle('Spatial Variation - Time Features') + scale_colour_manual(name="",values=c("Mean" = "blue","Stable Threshold"="red"))
 g  
 ggsave(paste('alltime_cofvar',MAXTIMEPLOT,'.pdf',sep=''),dpi=600,height=6,width=8)
-
 
 
 timeToStability = NULL
@@ -518,7 +492,7 @@ g
 
 ggsave(paste('supp_rmsfeatscofvar',MAXTIMEPLOT,'.pdf',sep=''),dpi=600,height=4,width=4)
 
-
+#Derivative features
 g = ggplot(tmp[(tmp$feature %in% derFeats),],aes(x=time,y=cofvar)) + stat_summary(fun.data=mean_se,geom="ribbon",alpha=0.35)  + stat_smooth(aes(colour="Mean"),se=F,alpha=0.8,level=0.95)  + facet_wrap(~feature) +
   geom_hline(aes(colour="Stable Threshold",yintercept=upper_thres),size=1,linetype="dotted")  + theme(axis.text = element_text(size=12),axis.title = element_text(size=14),strip.text.x = element_text(size = 14),legend.position='top') + coord_cartesian(ylim = c(0,1.25),xlim=c(0,MAXTIMEPLOT)) +
   xlab('Time (Days)') + ylab('Normalized Coefficient of Variation') + ggtitle('Spatial Variation') + scale_colour_manual(name="",values=c("Mean" = "blue","Stable Threshold"="red"))
@@ -544,13 +518,12 @@ for (i in 1:length(features)) {
 }
 
 
-
+#spectral features
 g = ggplot(tmp[(tmp$feature %in% powerFeats),],aes(x=time,y=cofvar)) + stat_summary(fun.data=mean_se,geom="ribbon",alpha=0.35) + stat_smooth(aes(colour="Mean"),se=F,alpha=0.8,level=0.95)  + facet_wrap(~feature) +
   geom_hline(aes(colour="Stable Threshold",yintercept=upper_thres),size=1,linetype="dotted")  + theme(legend.title=element_text(size=14),axis.text = element_text(size=12),axis.title = element_text(size=14),strip.text.x = element_text(size = 14),legend.position='top') + coord_cartesian(ylim = c(0,1.25),xlim=c(0,MAXTIMEPLOT)) +
   xlab('Time (Days)') + ylab('Normalized Coefficient of Variation') + ggtitle('Spatial Variation - Spectral Features') + scale_colour_manual(name="",values=c("Mean" = "blue","Stable Threshold"="red"))
 g
 ggsave(paste('allpower_cofvar',MAXTIMEPLOT,'.pdf',sep=''),dpi=600,height=6,width=8)
-
 
 features = powerFeats
 fits = ggplot_build(g)$data[[2]] #get smoothed fits
@@ -571,6 +544,7 @@ for (i in 1:length(features)) {
   timeToStability = rbind(timeToStability,tmptts)
 }
 
+#spectral2 features
 g = ggplot(tmp[(tmp$feature %in% power2Feats),],aes(x=time,y=cofvar)) + stat_summary(fun.data=mean_se,geom="ribbon",alpha=0.35) + stat_smooth(aes(colour="Mean"),se=F,alpha=0.8,level=0.95)  + facet_wrap(~feature) +
   geom_hline(aes(colour="Stable Threshold",yintercept=upper_thres),size=1,linetype="dotted")  + theme(legend.title=element_text(size=14),axis.text = element_text(size=12),axis.title = element_text(size=14),strip.text.x = element_text(size = 14),legend.position='top') + coord_cartesian(ylim = c(0,1.25),xlim=c(0,MAXTIMEPLOT)) +
   xlab('Time (Days)') + ylab('Normalized Coefficient of Variation') + ggtitle('Spatial Variation') + scale_colour_manual(name="",values=c("Mean" = "blue","Stable Threshold"="red"))
@@ -595,7 +569,8 @@ for (i in 1:length(features)) {
   tmptts= data.frame(feature=features[i],tts = cross,t1 = tmpfits[1,]$y,td1=panelfits$y[1],tc = thres,dtix=dtix,dtiy=dtiy,type='Cofvar')
   timeToStability = rbind(timeToStability,tmptts)
 }
-#### Mean Feat ####
+
+#### Plot mean for all features ####
 tmp = ddply(allDatLong,.(subjid,time,feature),summarize,meanfeat = mean(value),sd = sd(value))
 featlist = featLabelList;
 names(featlist) = featShortList
@@ -618,15 +593,13 @@ for (i in 1:length(uniqueFeat)) {
 }
 featnullD = data.frame(feature=uniqueFeat,mean=meannullD,sd=sdnullD)
 
-
+#Time features
 g = ggplot(tmp[(tmp$feature %in% timeFeats),],aes(x=time,y=meanfeat)) + stat_summary(fun.data=mean_se,geom="ribbon",alpha=0.35) + stat_smooth(aes(colour="Mean"),se=F,alpha=0.8,level=0.95)  + facet_wrap(~feature) +
   geom_hline(aes(colour="Stable Threshold",yintercept=upper_thres),size=1,linetype="dotted")  + theme(axis.text = element_text(size=12),axis.title = element_text(size=14),strip.text.x = element_text(size = 14),legend.position='top') + coord_cartesian(ylim = c(0.15,1),xlim=c(0,MAXTIMEPLOT)) +
   xlab('Time (Days)') + ylab('Normalized Feature Value') + ggtitle('Mean value - Time Features') + scale_colour_manual(name="",values=c("Mean" = "blue","Stable Threshold"="red"))
 g 
 
 ggsave(paste('alltime_meanfeat',MAXTIMEPLOT,'.pdf',sep=''),dpi=600,height=6,width=8)
-
-
 
 features = timeFeats
 fits = ggplot_build(g)$data[[2]] #get smoothed fits
@@ -646,6 +619,9 @@ for (i in 1:length(features)) {
   tmptts= data.frame(feature=features[i],tts = cross,t1 = tmpfits[1,]$y,td1=panelfits$y[1],tc = thres,dtix=dtix,dtiy=dtiy,type='feat')
   timeToStability = rbind(timeToStability,tmptts)
 }
+
+#Derivative features
+
 g = ggplot(tmp[(tmp$feature %in% derFeats[1:2]),],aes(x=time,y=meanfeat)) + stat_summary(fun.data=mean_se,geom="ribbon",alpha=0.35)  + facet_wrap(~feature) +
   geom_hline(aes(colour="Stable Threshold",yintercept=upper_thres),size=1,linetype="dotted")  + theme(axis.text = element_text(size=12),axis.title = element_text(size=14),strip.text.x = element_text(size = 14),legend.position='top') + coord_cartesian(ylim=c(0.4,0.6),xlim=c(0,MAXTIMEPLOT)) +
   xlab('Time (Days)') + ylab('Normalized Feature Value') + ggtitle('Mean value - Time Features') + scale_colour_manual(name="",values=c("Mean" = "blue","Stable Threshold"="red"))
@@ -685,15 +661,13 @@ for (i in 1:length(features)) {
   timeToStability = rbind(timeToStability,tmptts)
 }
 
+#Spectral features
 
 g = ggplot(tmp[(tmp$feature %in% powerFeats),],aes(x=time,y=meanfeat)) + stat_summary(fun.data=mean_se,geom="ribbon",alpha=0.35) + stat_smooth(aes(colour="Mean"),se=F,alpha=0.8,level=0.95)  + facet_wrap(~feature) +
   geom_hline(aes(colour="Stable Threshold",yintercept=upper_thres),size=1,linetype="dotted")  + theme(axis.text = element_text(size=12),axis.title = element_text(size=14),strip.text.x = element_text(size = 14),legend.position='top') + coord_cartesian(ylim = c(0.2,.6),xlim=c(0,MAXTIMEPLOT)) +
   xlab('Time (Days)') + ylab('Normalized Feature Value') + ggtitle('Mean value - Spectral Features') + scale_colour_manual(name="",values=c("Mean" = "blue","Stable Threshold"="red"))
 g 
 ggsave(paste('allpower_meanfeat',MAXTIMEPLOT,'.pdf',sep=''),dpi=600,height=6,width=8)
-
-
-
 
 features = powerFeats
 fits = ggplot_build(g)$data[[2]] #get smoothed fits
@@ -713,6 +687,8 @@ for (i in 1:length(features)) {
   tmptts= data.frame(feature=features[i],tts = cross,t1 = tmpfits[1,]$y,td1=panelfits$y[1],tc = thres,dtix=dtix,dtiy=dtiy,type='feat')
   timeToStability = rbind(timeToStability,tmptts)
 }
+
+#Spectral 2 features
 
 g = ggplot(tmp[(tmp$feature %in% power2Feats & tmp$time<500),],aes(x=time,y=meanfeat)) + stat_summary(fun.data=mean_se,geom="ribbon",alpha=0.35) + stat_smooth(aes(colour="Mean"),se=F,alpha=0.8,level=0.95)  + facet_wrap(~feature) +
   geom_hline(aes(colour="Stable Threshold",yintercept=upper_thres),size=1,linetype="dotted")  + theme(axis.text = element_text(size=12),axis.title = element_text(size=14),strip.text.x = element_text(size = 14),legend.position='top') + coord_cartesian(ylim = c(0.2,.75),xlim=c(0,MAXTIMEPLOT)) +
@@ -738,8 +714,6 @@ for (i in 1:length(features)) {
   tmptts= data.frame(feature=features[i],tts = cross,t1 = tmpfits[1,]$y,td1=panelfits$y[1],tc = thres,dtix=dtix,dtiy=dtiy,type='feat')
   timeToStability = rbind(timeToStability,tmptts)
 }
-
-
 
 #### individual feature plots grid ####
 indivFit= function(tmpdat,featName,logflag) {
@@ -938,10 +912,6 @@ ggsave(paste('indiv-DaysToStability-feat',id,logflag,maxTime,'.pdf',sep=''),widt
 
 ggplot(data =  stability, aes(x = feature, y = subjid)) +  geom_tile(colour='white') + geom_text(aes(label = round(dtix,3))) + ylab('Patient') + xlab('Feature') + ggtitle('Days to inflexion')
 ggsave(paste('indiv-DaysToInflexion-feat',id,logflag,maxTime,'.pdf',sep=''),width=8,height=11,dpi=600)
-
-
-
-
 
 
 ####### SD FEAT ########
